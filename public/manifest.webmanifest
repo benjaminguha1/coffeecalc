@@ -1,0 +1,17 @@
+{
+  "name": "CoffeeCalc Espresso Dial-in",
+  "short_name": "CoffeeCalc",
+  "description": "Dial in espresso recipes using measured strength.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f1e9",
+  "theme_color": "#17201c",
+  "icons": [
+    {
+      "src": "./coffee.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
