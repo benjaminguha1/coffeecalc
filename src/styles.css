@@ -646,6 +646,70 @@ summary:focus-visible {
   outline: none;
 }
 
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 48px;
+  padding: 0.75rem;
+  color: var(--slate-700);
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.check-field input,
+.log-controls input {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.coffee-components {
+  padding: 1rem;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: 0.75rem;
+}
+
+.component-heading,
+.log-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.component-heading small,
+.bypass-form small,
+.assignment small {
+  color: var(--slate-500);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.component-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.component-row legend {
+  grid-column: 1 / -1;
+  color: var(--blue);
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.component-remove {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
 .field input:focus,
 .field select:focus,
 .assignment select:focus {
@@ -839,6 +903,19 @@ summary:focus-visible {
   font-size: 0.68rem;
 }
 
+.log-controls {
+  margin-top: 0.65rem;
+}
+
+.log-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--slate-700);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .recipe-group-heading {
   position: relative;
   padding-right: 2rem;
@@ -878,10 +955,67 @@ summary:focus-visible {
   font-weight: 800;
 }
 
+.recipe-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.8rem;
+}
+
+.recipe-metadata span {
+  padding: 0.25rem 0.45rem;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 0.35rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.recipe-metadata p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--slate-500);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.add-method {
+  margin-top: 0.8rem;
+}
+
+.method-heading {
+  margin: 1.25rem 0 -0.35rem;
+  color: var(--navy);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .recipe-iteration {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--slate-200);
+}
+
+.recipe-iteration.is-current {
+  padding: 1rem;
+  background: var(--blue-soft);
+  border: 1px solid color-mix(in srgb, var(--blue) 25%, transparent);
+  border-radius: 0.75rem;
+}
+
+.previous-recipes {
+  margin-top: 0.85rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--slate-200);
+  border-radius: 0.75rem;
+}
+
+.previous-recipes > summary {
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .recipe-top {
@@ -986,6 +1120,32 @@ summary:focus-visible {
   color: var(--slate-700);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.bypass-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1.25rem;
+}
+
+.bypass-result {
+  padding: 1rem;
+  color: var(--navy);
+  background: var(--blue-soft);
+  border-radius: 0.75rem;
+  text-align: center;
+}
+
+.bypass-result span,
+.bypass-result strong,
+.bypass-result small {
+  display: block;
+}
+
+.bypass-result strong {
+  margin: 0.3rem 0;
+  font-size: 1.7rem;
 }
 
 .empty-state {

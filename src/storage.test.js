@@ -26,8 +26,14 @@ function createStorage() {
 function iteration(id, overrides = {}) {
   return {
     id,
+    brewMethod: 'espresso',
     dose: 18,
     yieldGrams: 40,
+    strength: null,
+    targetStrength: null,
+    targetSolids: null,
+    extractionYield: null,
+    dissolvedSolids: null,
     grindSize: '4.2',
     shotTime: 28,
     lastAssignedAt: null,
@@ -53,6 +59,10 @@ describe('state persistence', () => {
       coffee: 'Showcase Blend',
       recipeType: 'blend',
       createdAt: '2026-07-16T00:00:00.000Z',
+      sku: '',
+      roastMonth: '',
+      inCellar: false,
+      components: [],
       iterations: [
         iteration('shot-1', {
           lastAssignedAt: '2026-07-16T00:00:00.000Z',
@@ -181,6 +191,22 @@ describe('recipe iterations', () => {
     expect(state.programs['Long Up']).toBe('another-shot');
   });
 
+  it('keeps updates made to a newly added iteration when saved and reloaded', () => {
+    const state = createInitialState();
+    const added = iteration('shot-1');
+    addRecipeIteration(state, 'Showcase Blend', added);
+    state.programs.Down = added.id;
+    added.lastAssignedAt = '2026-07-16T02:00:00.000Z';
+
+    saveState(state, storage);
+    const restored = loadState(storage);
+
+    expect(restored.programs.Down).toBe('shot-1');
+    expect(restored.recipes[0].iterations[0].lastAssignedAt).toBe(
+      '2026-07-16T02:00:00.000Z',
+    );
+  });
+
   it('infers a single recipe when migrating an 8.5% target', () => {
     const state = importState(
       JSON.stringify({
@@ -198,6 +224,126 @@ describe('recipe iterations', () => {
     );
 
     expect(state.recipes[0].recipeType).toBe('single');
+  });
+
+  it('keeps grouped coffees with distinct ids separate after a rename', () => {
+    const state = importState(
+      JSON.stringify({
+        recipes: [
+          {
+            id: 'recipe-a',
+            coffee: 'Same label',
+            iterations: [iteration('a')],
+          },
+          {
+            id: 'recipe-b',
+            coffee: 'Same label',
+            iterations: [iteration('b')],
+          },
+        ],
+        programs: {},
+      }),
+    );
+
+    expect(state.recipes).toHaveLength(2);
+    expect(state.recipes.map(({ id }) => id)).toEqual(['recipe-a', 'recipe-b']);
+  });
+
+  it('preserves incomplete filter notebook entries and metadata', () => {
+    const state = createInitialState();
+    addRecipeIteration(
+      state,
+      '',
+      iteration('filter-note', {
+        brewMethod: 'filter',
+        dose: null,
+        yieldGrams: null,
+      }),
+      'single',
+      {
+        sku: 'F-100',
+        roastMonth: '2026-09',
+        inCellar: true,
+        components: [
+          {
+            country: 'Kenya',
+            name: 'Gichathaini',
+            process: 'Washed',
+            varietal: 'SL28',
+          },
+        ],
+      },
+    );
+
+    const restored = importState(exportState(state));
+    expect(restored.recipes[0]).toMatchObject({
+      coffee: '',
+      sku: 'F-100',
+      roastMonth: '2026-09',
+      inCellar: true,
+      components: [{ country: 'Kenya', varietal: 'SL28' }],
+    });
+    expect(restored.recipes[0].iterations[0]).toMatchObject({
+      brewMethod: 'filter',
+      dose: null,
+      yieldGrams: null,
+    });
+  });
+
+  it('migrates and round-trips an optional roast month', () => {
+    const restored = importState(
+      JSON.stringify({
+        recipes: [
+          {
+            id: 'recipe-month',
+            coffee: 'Spring Coffee',
+            roastMonth: '2026-09',
+            iterations: [iteration('spring-filter', { brewMethod: 'filter' })],
+          },
+          {
+            id: 'recipe-invalid-month',
+            coffee: 'Old Coffee',
+            roastMonth: 'September 2026',
+            iterations: [iteration('old-shot')],
+          },
+        ],
+        programs: {},
+      }),
+    );
+
+    expect(restored.recipes[0].roastMonth).toBe('2026-09');
+    expect(restored.recipes[1].roastMonth).toBe('');
+    expect(importState(exportState(restored))).toEqual(restored);
+  });
+
+  it('uses saved array order to preserve recipe history', () => {
+    const restored = importState(
+      JSON.stringify({
+        recipes: [
+          {
+            id: 'recipe-history',
+            coffee: 'History Coffee',
+            iterations: [
+              iteration('legacy-filter', {
+                brewMethod: 'filter',
+                yieldGrams: 250,
+              }),
+              iteration('z-old', { createdAt: '2026-09-30T00:00:00Z' }),
+              iteration('a-current', { createdAt: '2026-01-01T00:00:00Z' }),
+            ],
+          },
+        ],
+        programs: {},
+      }),
+    );
+
+    expect(restored.recipes[0].iterations.map(({ id }) => id)).toEqual([
+      'legacy-filter',
+      'z-old',
+      'a-current',
+    ]);
+    expect(restored.recipes[0].iterations[0].yieldGrams).toBe(250);
+    expect(restored.recipes[0].iterations.at(-1).id).toBe('a-current');
   });
 });
 

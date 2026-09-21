@@ -1,5 +1,11 @@
 import './styles.css';
-import { calculateDialIn, formatMeasurement } from './calculator.js';
+import {
+  FILTER_TARGET_YIELD_GRAMS,
+  calculateBypassWater,
+  calculateDialIn,
+  filterTargetSolids,
+  formatMeasurement,
+} from './calculator.js';
 import {
   PROGRAM_NAMES,
   addRecipeIteration,
@@ -17,6 +23,7 @@ import {
 let state = loadState();
 let lastCalculation = null;
 let editingIterationId = null;
+let editingRecipeId = null;
 let onlineSaveQueue = Promise.resolve();
 
 const app = document.querySelector('#app');
@@ -72,41 +79,67 @@ app.innerHTML = `
 
     <section class="view" id="view-dial-in" data-view-panel="dial-in" hidden>
       <div class="section-heading">
-        <p class="view-intro">Record the measured shot, then calculate the next recipe.</p>
+        <p class="view-intro">Record a brew, calculate a recommendation, or save notes for later.</p>
       </div>
       <div class="workflow-grid">
         <form class="panel form-panel" id="dial-form">
           <div class="field field-wide">
-            <label for="coffee-name">Coffee name</label>
-            <input id="coffee-name" name="coffee" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Showcase Blend" required />
+            <label for="coffee-name">Coffee label <span>optional</span></label>
+            <input id="coffee-name" name="coffee" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Showcase Blend" />
             <small class="edit-context" id="edit-context" hidden>Editing a saved recipe. Saving will create a new iteration.</small>
           </div>
           <div class="field field-wide">
-            <label for="recipe-type">Recipe type</label>
+            <label for="recipe-type">Coffee type</label>
             <select id="recipe-type" name="recipeType">
               <option value="blend" selected>Blend</option>
-              <option value="single">Single</option>
+              <option value="single">Single origin</option>
+            </select>
+          </div>
+          <div class="field field-wide">
+            <label for="brew-method">Recipe</label>
+            <select id="brew-method" name="brewMethod">
+              <option value="espresso" selected>Espresso</option>
+              <option value="filter">Filter</option>
             </select>
           </div>
           <div class="field">
-            <label for="dose">Dose <span>g</span></label>
-            <input id="dose" name="dose" type="number" min="0.1" max="100" step="0.1" inputmode="decimal" placeholder="18.0" required />
+            <label for="sku">SKU <span>optional</span></label>
+            <input id="sku" name="sku" type="text" maxlength="80" autocomplete="off" />
           </div>
           <div class="field">
-            <label for="yield">Yield <span>g</span></label>
-            <input id="yield" name="yieldGrams" type="number" min="0.1" max="300" step="0.1" inputmode="decimal" placeholder="40.0" required />
+            <label for="roast-month">Roast month <span>optional</span></label>
+            <input id="roast-month" name="roastMonth" type="month" />
+          </div>
+          <label class="check-field">
+            <input id="in-cellar" name="inCellar" type="checkbox" />
+            <span>In cellar</span>
+          </label>
+          <section class="coffee-components field-wide" aria-labelledby="components-heading">
+            <div class="component-heading">
+              <div><p class="target-title" id="components-heading">Coffee details</p><small>Every field is optional.</small></div>
+              <button class="button button-secondary button-compact" id="add-component" type="button">Add component</button>
+            </div>
+            <div id="component-list"></div>
+          </section>
+          <div class="field">
+            <label for="dose">Dose <span>optional · g</span></label>
+            <input id="dose" name="dose" type="number" min="0.1" max="500" step="0.1" inputmode="decimal" placeholder="18.0" />
+          </div>
+          <div class="field">
+            <label for="yield">Beverage yield <span>optional · g</span></label>
+            <input id="yield" name="yieldGrams" type="number" min="0.1" max="2000" step="0.1" inputmode="decimal" placeholder="40.0" />
           </div>
           <div class="field">
             <label for="grind-size">Grind size <span>optional</span></label>
             <input id="grind-size" name="grindSize" type="text" maxlength="40" autocomplete="off" placeholder="e.g. 4.2 or 18 clicks" />
           </div>
           <div class="field">
-            <label for="shot-time">Shot time <span>optional · seconds</span></label>
-            <input id="shot-time" name="shotTime" type="number" min="1" max="300" step="0.1" inputmode="decimal" placeholder="28.0" />
+            <label for="shot-time">Brew time <span>optional · seconds</span></label>
+            <input id="shot-time" name="shotTime" type="number" min="1" max="3600" step="0.1" inputmode="decimal" placeholder="28.0" />
           </div>
           <div class="field field-wide">
-            <label for="strength">Measured strength <span>% TDS</span></label>
-            <input id="strength" name="strength" type="number" min="0.01" max="30" step="0.01" inputmode="decimal" placeholder="9.30" required />
+            <label for="strength">Measured strength <span>optional · % TDS</span></label>
+            <input id="strength" name="strength" type="number" min="0.01" max="30" step="0.01" inputmode="decimal" placeholder="9.30" />
             <small>Enter the reading from your refractometer.</small>
           </div>
           <section class="targets field-wide" aria-labelledby="dial-targets-heading">
@@ -119,27 +152,28 @@ app.innerHTML = `
             <div class="target-grid">
               <div class="field">
                 <label for="target-strength">Target strength <span>%</span></label>
-                <input id="target-strength" name="targetStrength" type="number" min="0.01" max="30" step="0.01" value="9.30" required />
+                <input id="target-strength" name="targetStrength" type="number" min="0.01" max="30" step="0.01" value="9.30" />
               </div>
               <div class="field">
                 <label for="target-solids">Target dissolved solids <span>g</span></label>
-                <input id="target-solids" name="targetSolids" type="number" min="0.01" max="30" step="0.01" value="4.41" required />
+                <input id="target-solids" name="targetSolids" type="number" min="0.01" max="100" step="0.001" value="4.41" />
+                <small id="target-solids-help"></small>
               </div>
             </div>
           </section>
           <p class="form-error field-wide" id="dial-error" role="alert" hidden></p>
-          <button class="button button-primary button-large field-wide" type="submit">Calculate next shot</button>
-          <button class="button button-secondary button-large field-wide" id="save-recipe" type="button">Save this shot</button>
+          <button class="button button-primary button-large field-wide" type="submit">Calculate recommendation</button>
+          <button class="button button-secondary button-large field-wide" id="save-recipe" type="button">Save notebook entry</button>
         </form>
 
         <aside class="panel result-panel" id="dial-result" aria-live="polite">
           <div class="result-placeholder" id="result-placeholder">
             <span aria-hidden="true">↗</span>
             <h3>Your recommendation appears here</h3>
-            <p>Add the shot measurements to see extraction and the suggested next recipe.</p>
+            <p>Add the brew measurements to see extraction and the suggested next recipe.</p>
           </div>
           <div id="result-content" hidden>
-            <p class="eyebrow">Recommended next shot</p>
+            <p class="eyebrow">Recommended next recipe</p>
             <div class="recommendation">
               <div><strong id="result-dose">—</strong><span>Dose · g</span></div>
               <i aria-hidden="true">→</i>
@@ -168,7 +202,11 @@ app.innerHTML = `
       </div>
       <div class="recipe-search" id="recipe-search-wrap">
         <label class="sr-only" for="recipe-search">Search saved coffees</label>
-        <input id="recipe-search" type="search" placeholder="Search saved coffees…" autocomplete="off" />
+        <input id="recipe-search" type="search" placeholder="Search origin, name, varietal or SKU…" autocomplete="off" />
+        <div class="log-controls">
+          <label><input id="cellar-only" type="checkbox" /> Cellar only</label>
+          <button class="button button-secondary button-compact" id="sort-recipes" type="button" data-sort="newest">Sort: newest</button>
+        </div>
         <small id="recipe-search-status" aria-live="polite"></small>
       </div>
       <div class="recipe-list" id="recipe-list"></div>
@@ -206,6 +244,13 @@ app.innerHTML = `
           <div><span>Dissolved solids</span><strong id="quick-solids">—</strong><small>grams</small></div>
         </div>
       </div>
+      <form class="panel bypass-form" id="bypass-form">
+        <div class="section-heading"><p class="target-title">Bypass brew</p><small>Dilute a brewed beverage with water to reach a lower TDS.</small></div>
+        <div class="field"><label for="bypass-mass">Beverage mass <span>g</span></label><input id="bypass-mass" name="beverageMass" type="number" min="0.1" step="0.1" inputmode="decimal" /></div>
+        <div class="field"><label for="bypass-current">Current TDS <span>%</span></label><input id="bypass-current" name="currentTds" type="number" min="0.01" step="0.01" inputmode="decimal" /></div>
+        <div class="field"><label for="bypass-target">Target TDS <span>%</span></label><input id="bypass-target" name="targetTds" type="number" min="0.01" step="0.01" inputmode="decimal" /></div>
+        <div class="bypass-result" aria-live="polite"><span>Water to add</span><strong id="bypass-water">—</strong><small id="bypass-message">grams</small></div>
+      </form>
     </section>
   </main>
 
@@ -218,7 +263,126 @@ document.querySelector('#staff-name').textContent =
 document.querySelector('#staff-admin').hidden = app.dataset.role !== 'admin';
 
 const byId = (id) => document.getElementById(id);
-const numberFrom = (formData, name) => Number(formData.get(name));
+const optionalNumberFrom = (formData, name) => {
+  const value = formData.get(name);
+  if (value === '' || value === null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+};
+
+function componentRow(component = {}, index = 0) {
+  const row = document.createElement('fieldset');
+  row.className = 'component-row';
+  row.dataset.component = '';
+  const legend = document.createElement('legend');
+  legend.textContent = `Coffee ${index + 1}`;
+  const fields = [
+    ['country', 'Country of origin'],
+    ['name', 'Name'],
+    ['process', 'Process'],
+    ['varietal', 'Varietal'],
+  ];
+  row.append(legend);
+  fields.forEach(([name, labelText]) => {
+    const field = document.createElement('div');
+    field.className = 'field';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    const input = document.createElement('input');
+    input.id = `component-${index}-${name}`;
+    label.htmlFor = input.id;
+    input.name = `component-${name}`;
+    input.type = 'text';
+    input.maxLength = 100;
+    input.autocomplete = 'off';
+    input.value = component[name] ?? '';
+    field.append(label, input);
+    row.append(field);
+  });
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'icon-button component-remove';
+  remove.textContent = 'Remove';
+  remove.hidden = index === 0;
+  remove.addEventListener('click', () => {
+    row.remove();
+    refreshComponentRows();
+  });
+  row.append(remove);
+  return row;
+}
+
+function refreshComponentRows() {
+  const form = byId('dial-form');
+  const isBlend = form.elements.recipeType.value === 'blend';
+  const rows = [...byId('component-list').querySelectorAll('[data-component]')];
+  if (rows.length === 0) byId('component-list').append(componentRow({}, 0));
+  [...byId('component-list').querySelectorAll('[data-component]')].forEach(
+    (row, index) => {
+      row.querySelector('legend').textContent = isBlend
+        ? `Component ${index + 1}`
+        : 'Single origin details';
+      row.querySelector('.component-remove').hidden = !isBlend || index === 0;
+      row.querySelectorAll('input').forEach((input) => {
+        const name = input.name.replace('component-', '');
+        input.id = `component-${index}-${name}`;
+        row.querySelector(`label[for$="-${name}"]`).htmlFor = input.id;
+      });
+      if (!isBlend && index > 0) row.remove();
+    },
+  );
+  byId('add-component').hidden = !isBlend;
+}
+
+function setComponents(components = []) {
+  const list = byId('component-list');
+  list.replaceChildren();
+  (components.length ? components : [{}]).forEach((component, index) =>
+    list.append(componentRow(component, index)),
+  );
+  refreshComponentRows();
+}
+
+function componentsFrom(form) {
+  return [...form.querySelectorAll('[data-component]')]
+    .map((row) =>
+      Object.fromEntries(
+        ['country', 'name', 'process', 'varietal'].map((name) => [
+          name,
+          row.querySelector(`[name="component-${name}"]`).value.trim(),
+        ]),
+      ),
+    )
+    .filter((component) => Object.values(component).some(Boolean));
+}
+
+function recipeDisplayName(recipe) {
+  return (
+    recipe.coffee ||
+    recipe.components
+      ?.map((component) => component.name)
+      .filter(Boolean)
+      .join(' + ') ||
+    recipe.sku ||
+    'Untitled coffee'
+  );
+}
+
+function isCompleteIteration(iteration) {
+  return [
+    'dose',
+    'yieldGrams',
+    'strength',
+    'targetStrength',
+    'targetSolids',
+  ].every((key) => Number.isFinite(iteration[key]) && iteration[key] > 0);
+}
+
+function formatOptional(value, decimals = 1, suffix = '') {
+  return Number.isFinite(value) && value > 0
+    ? `${formatMeasurement(value, decimals)}${suffix}`
+    : '—';
+}
 
 function setSaveStatus(stateName, message) {
   byId('save-status').dataset.state = stateName;
@@ -279,14 +443,18 @@ async function initialiseOnlineState() {
   }
 }
 
-function measurementsFrom(form) {
+function measurementsFrom(form, brewMethod = form.elements.brewMethod?.value) {
   const data = new FormData(form);
+  const targetStrength = optionalNumberFrom(data, 'targetStrength');
   return {
-    dose: numberFrom(data, 'dose'),
-    yieldGrams: numberFrom(data, 'yieldGrams'),
-    strength: numberFrom(data, 'strength'),
-    targetStrength: numberFrom(data, 'targetStrength'),
-    targetSolids: numberFrom(data, 'targetSolids'),
+    dose: optionalNumberFrom(data, 'dose'),
+    yieldGrams: optionalNumberFrom(data, 'yieldGrams'),
+    strength: optionalNumberFrom(data, 'strength'),
+    targetStrength,
+    targetSolids:
+      brewMethod === 'filter' && targetStrength
+        ? filterTargetSolids(targetStrength)
+        : optionalNumberFrom(data, 'targetSolids'),
   };
 }
 
@@ -299,19 +467,65 @@ function brewDetailsFrom(form) {
   };
 }
 
-function targetStrengthForRecipeType(recipeType) {
+function targetStrengthForRecipeType(brewMethod, recipeType = 'blend') {
+  if (brewMethod === 'filter') return 1.35;
   return recipeType === 'single' ? 8.5 : 9.3;
 }
 
+function targetSolidsForBrewMethod(brewMethod) {
+  return brewMethod === 'filter' ? filterTargetSolids(1.35) : 4.41;
+}
+
+function updateTargetControls(form, brewMethod) {
+  const targetSolids = form.elements.targetSolids;
+  const help = byId('target-solids-help');
+  const isFilter = brewMethod === 'filter';
+  targetSolids.readOnly = isFilter;
+  targetSolids.setAttribute('aria-readonly', String(isFilter));
+  help.textContent = isFilter
+    ? `Calculated from a fixed ${FILTER_TARGET_YIELD_GRAMS} g brewed-beverage output (about 12 US fl oz).`
+    : '';
+  if (isFilter) {
+    const targetStrength = Number(form.elements.targetStrength.value);
+    if (Number.isFinite(targetStrength) && targetStrength > 0) {
+      targetSolids.value = filterTargetSolids(targetStrength).toFixed(3);
+    }
+  }
+}
+
+function applyBrewDefaults(form, brewMethod) {
+  form.elements.targetStrength.value = targetStrengthForRecipeType(
+    brewMethod,
+    form.elements.recipeType.value,
+  ).toFixed(2);
+  form.elements.targetSolids.value =
+    targetSolidsForBrewMethod(brewMethod).toFixed(3);
+  form.elements.yieldGrams.placeholder =
+    brewMethod === 'filter' ? '355.0' : '40.0';
+  form.elements.strength.placeholder =
+    brewMethod === 'filter' ? '1.35' : '9.30';
+  updateTargetControls(form, brewMethod);
+}
+
 function dialInFrom(form) {
-  const measurements = measurementsFrom(form);
   const data = new FormData(form);
+  const brewMethod = data.get('brewMethod');
+  const measurements = measurementsFrom(form, brewMethod);
   return {
     coffee: data.get('coffee').trim(),
     recipeType: data.get('recipeType'),
+    brewMethod,
+    metadata: {
+      sku: data.get('sku').trim(),
+      roastMonth: data.get('roastMonth'),
+      inCellar: data.get('inCellar') === 'on',
+      components: componentsFrom(form),
+    },
     measurements,
     brewDetails: brewDetailsFrom(form),
-    result: calculateDialIn(measurements),
+    result: isCompleteIteration(measurements)
+      ? calculateDialIn({ ...measurements, brewMethod })
+      : null,
   };
 }
 
@@ -356,12 +570,12 @@ function createProgramCard(programName, recipe) {
   heading.append(label);
 
   const title = document.createElement('h3');
-  title.textContent = recipe?.coffee || 'Ready for a coffee';
+  title.textContent = recipe ? recipeDisplayName(recipe) : 'Ready for a coffee';
   heading.append(title);
 
   const detail = document.createElement('p');
   detail.textContent = recipe
-    ? `${recipe.recipeType === 'single' ? 'Single' : 'Blend'} · ${formatMeasurement(recipe.dose)}g → ${formatMeasurement(recipe.yieldGrams ?? recipe.yield)}g · ${formatMeasurement(recipe.strength, 2)}% · ${recipe.grindSize || 'Grind not set'} · ${recipe.shotTime ? `${formatMeasurement(recipe.shotTime)}s` : 'Time not set'}`
+    ? `${recipe.recipeType === 'single' ? 'Single origin' : 'Blend'} · ${formatOptional(recipe.dose, 1, 'g')} → ${formatOptional(recipe.yieldGrams ?? recipe.yield, 1, 'g')} · ${formatOptional(recipe.strength, 2, '%')} · ${recipe.grindSize || 'Grind not set'} · ${recipe.shotTime ? `${formatMeasurement(recipe.shotTime)}s` : 'Time not set'}`
     : 'Empty slot';
   heading.append(detail);
 
@@ -400,6 +614,8 @@ function renderDashboard() {
           ? {
               ...match.iteration,
               coffee: match.recipe.coffee,
+              sku: match.recipe.sku,
+              components: match.recipe.components,
               recipeType: match.recipe.recipeType,
             }
           : null,
@@ -411,7 +627,14 @@ function renderDashboard() {
 
 function assignedRecipe(programName) {
   const match = findIteration(state, state.programs[programName]);
-  return match ? { ...match.iteration, coffee: match.recipe.coffee } : null;
+  return match
+    ? {
+        ...match.iteration,
+        coffee: match.recipe.coffee,
+        sku: match.recipe.sku,
+        components: match.recipe.components,
+      }
+    : null;
 }
 
 function createPrintRecipe(programName, recipe) {
@@ -423,7 +646,7 @@ function createPrintRecipe(programName, recipe) {
   program.textContent = programName;
 
   const coffee = document.createElement('h1');
-  coffee.textContent = recipe.coffee;
+  coffee.textContent = recipeDisplayName(recipe);
 
   const ratio = document.createElement('p');
   ratio.className = 'print-ratio';
@@ -483,6 +706,17 @@ function formatDate(recipe) {
   return recipe.date || 'Saved recipe';
 }
 
+function formatRoastMonth(value) {
+  const match = /^(\d{4})-(\d{2})$/.exec(value ?? '');
+  if (!match) return '';
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
 function formatRecency(value) {
   if (!value) return 'not recorded';
   const date = new Date(value);
@@ -504,7 +738,16 @@ function formatRecency(value) {
 
 function assignRecipe(recipeId, programName) {
   const match = findIteration(state, recipeId);
-  if (!match) return;
+  if (
+    !match ||
+    match.iteration.brewMethod === 'filter' ||
+    !isCompleteIteration(match.iteration)
+  ) {
+    showToast(
+      'Only complete espresso recipes can be assigned to a machine program.',
+    );
+    return;
+  }
 
   Object.entries(state.programs).forEach(([name, assignedId]) => {
     const assigned = findIteration(state, assignedId);
@@ -515,14 +758,14 @@ function assignRecipe(recipeId, programName) {
   state.programs[programName] = match.iteration.id;
   match.iteration.lastAssignedAt = new Date().toISOString();
   persistAndRender();
-  showToast(`${match.recipe.coffee} assigned to ${programName}.`);
+  showToast(`${recipeDisplayName(match.recipe)} assigned to ${programName}.`);
 }
 
 function deleteRecipe(recipeId) {
   const match = findIteration(state, recipeId);
   if (
     !match ||
-    !window.confirm(`Delete this ${match.recipe.coffee} iteration?`)
+    !window.confirm(`Delete this ${recipeDisplayName(match.recipe)} iteration?`)
   )
     return;
 
@@ -548,31 +791,84 @@ function editIteration(iterationId) {
   const form = byId('dial-form');
   form.elements.coffee.value = recipe.coffee;
   form.elements.recipeType.value = recipe.recipeType ?? 'blend';
+  form.elements.brewMethod.value = iteration.brewMethod ?? 'espresso';
+  form.elements.sku.value = recipe.sku ?? '';
+  form.elements.roastMonth.value = recipe.roastMonth ?? '';
+  form.elements.inCellar.checked = Boolean(recipe.inCellar);
+  setComponents(recipe.components);
   form.elements.grindSize.value = iteration.grindSize ?? '';
   form.elements.shotTime.value = iteration.shotTime ?? '';
-  form.elements.dose.value = iteration.dose;
-  form.elements.yieldGrams.value = iteration.yieldGrams;
+  form.elements.dose.value = iteration.dose ?? '';
+  form.elements.yieldGrams.value = iteration.yieldGrams ?? '';
   form.elements.strength.value = iteration.strength ?? '';
-  form.elements.targetStrength.value = iteration.targetStrength ?? 9.3;
-  form.elements.targetSolids.value = iteration.targetSolids ?? 4.41;
+  const method = iteration.brewMethod ?? 'espresso';
+  form.elements.targetStrength.value =
+    iteration.targetStrength ??
+    targetStrengthForRecipeType(method, recipe.recipeType);
+  form.elements.targetSolids.value =
+    method === 'filter'
+      ? filterTargetSolids(Number(form.elements.targetStrength.value)).toFixed(
+          3,
+        )
+      : (iteration.targetSolids ?? targetSolidsForBrewMethod(method));
   editingIterationId = iteration.id;
+  editingRecipeId = recipe.id;
+  form.elements.yieldGrams.placeholder = method === 'filter' ? '355.0' : '40.0';
+  form.elements.strength.placeholder = method === 'filter' ? '1.35' : '9.30';
+  updateTargetControls(form, method);
   lastCalculation = null;
   byId('edit-context').hidden = false;
+  byId('edit-context').textContent =
+    'Editing a saved recipe. Saving will create a new iteration.';
   byId('result-placeholder').hidden = false;
   byId('result-content').hidden = true;
   showView('dial-in');
   form.elements.grindSize.focus();
 }
 
-function createRecipeIteration(recipe, iteration, iterationNumber) {
+function createOtherMethod(recipe) {
+  const form = byId('dial-form');
+  const latest = recipe.iterations.at(-1);
+  const latestMethod = latest?.brewMethod ?? 'espresso';
+  const method = latestMethod === 'espresso' ? 'filter' : 'espresso';
+  form.reset();
+  form.elements.coffee.value = recipe.coffee;
+  form.elements.recipeType.value = recipe.recipeType;
+  form.elements.brewMethod.value = method;
+  form.elements.sku.value = recipe.sku ?? '';
+  form.elements.roastMonth.value = recipe.roastMonth ?? '';
+  form.elements.inCellar.checked = Boolean(recipe.inCellar);
+  setComponents(recipe.components);
+  applyBrewDefaults(form, method);
+  editingIterationId = null;
+  editingRecipeId = recipe.id;
+  lastCalculation = null;
+  byId('edit-context').hidden = false;
+  byId('edit-context').textContent =
+    `Adding a ${method} recipe for this coffee.`;
+  byId('result-placeholder').hidden = false;
+  byId('result-content').hidden = true;
+  showView('dial-in');
+  form.elements.dose.focus();
+}
+
+function createRecipeIteration(
+  recipe,
+  iteration,
+  iterationNumber,
+  { current = false } = {},
+) {
   const section = document.createElement('section');
   section.className = 'recipe-iteration';
+  section.classList.toggle('is-current', current);
 
   const top = document.createElement('div');
   top.className = 'recipe-top';
   const titleWrap = document.createElement('div');
   const title = document.createElement('h4');
-  title.textContent = `Iteration ${iterationNumber}`;
+  title.textContent = current
+    ? 'Current / preferred'
+    : `Iteration ${iterationNumber}`;
   const date = document.createElement('p');
   date.textContent = formatDate(iteration);
   titleWrap.append(title, date);
@@ -592,7 +888,7 @@ function createRecipeIteration(recipe, iteration, iterationNumber) {
   remove.className = 'icon-button';
   remove.setAttribute(
     'aria-label',
-    `Delete ${recipe.coffee} iteration ${iterationNumber}`,
+    `Delete ${recipeDisplayName(recipe)} iteration ${iterationNumber}`,
   );
   remove.textContent = 'Delete';
   remove.addEventListener('click', () => deleteRecipe(iteration.id));
@@ -603,12 +899,12 @@ function createRecipeIteration(recipe, iteration, iterationNumber) {
   const metrics = document.createElement('dl');
   metrics.className = 'recipe-metrics';
   const entries = [
-    ['Dose', `${formatMeasurement(iteration.dose)}g`],
-    ['Yield', `${formatMeasurement(iteration.yieldGrams)}g`],
-    ['Strength', `${formatMeasurement(iteration.strength, 2)}%`],
+    ['Dose', formatOptional(iteration.dose, 1, 'g')],
+    ['Yield', formatOptional(iteration.yieldGrams, 1, 'g')],
+    ['Strength', formatOptional(iteration.strength, 2, '%')],
     [
       'Extraction',
-      iteration.extractionYield
+      Number.isFinite(iteration.extractionYield)
         ? `${formatMeasurement(iteration.extractionYield, 2)}%`
         : '—',
     ],
@@ -629,7 +925,7 @@ function createRecipeIteration(recipe, iteration, iterationNumber) {
   const brewEntries = [
     ['Grind size', iteration.grindSize || 'Not recorded'],
     [
-      'Shot time',
+      'Brew time',
       iteration.shotTime
         ? `${formatMeasurement(iteration.shotTime)} seconds`
         : 'Not recorded',
@@ -649,10 +945,20 @@ function createRecipeIteration(recipe, iteration, iterationNumber) {
 
   const assignment = document.createElement('div');
   assignment.className = 'assignment';
+  if (iteration.brewMethod === 'filter' || !isCompleteIteration(iteration)) {
+    const note = document.createElement('small');
+    note.textContent =
+      iteration.brewMethod === 'filter'
+        ? 'Filter recipes are kept in the log and cannot be assigned to espresso machine programs.'
+        : 'Add all measurements before assigning this espresso recipe to a program.';
+    assignment.append(note);
+    section.append(assignment);
+    return section;
+  }
   const select = document.createElement('select');
   select.setAttribute(
     'aria-label',
-    `Assign ${recipe.coffee} iteration ${iterationNumber} to a machine program`,
+    `Assign ${recipeDisplayName(recipe)} iteration ${iterationNumber} to a machine program`,
   );
   const prompt = document.createElement('option');
   prompt.value = '';
@@ -680,39 +986,127 @@ function createRecipeCard(recipe) {
   const heading = document.createElement('summary');
   heading.className = 'recipe-group-heading';
   const title = document.createElement('h3');
-  title.textContent = recipe.coffee;
+  title.textContent = recipeDisplayName(recipe);
   const count = document.createElement('p');
   const typeLabel = recipe.recipeType === 'single' ? 'Single' : 'Blend';
   count.textContent = `${typeLabel} · ${recipe.iterations.length} ${recipe.iterations.length === 1 ? 'iteration' : 'iterations'}`;
   heading.append(title, count);
   card.append(heading);
 
-  [...recipe.iterations]
-    .sort((a, b) =>
-      String(b.createdAt ?? b.id).localeCompare(String(a.createdAt ?? a.id)),
-    )
-    .forEach((iteration, index) =>
-      card.append(
-        createRecipeIteration(
-          recipe,
-          iteration,
-          recipe.iterations.length - index,
-        ),
-      ),
+  const metadata = document.createElement('div');
+  metadata.className = 'recipe-metadata';
+  if (recipe.sku) {
+    const sku = document.createElement('span');
+    sku.textContent = `SKU ${recipe.sku}`;
+    metadata.append(sku);
+  }
+  if (recipe.roastMonth) {
+    const roastMonth = document.createElement('span');
+    roastMonth.textContent = `Roasted ${formatRoastMonth(recipe.roastMonth)}`;
+    metadata.append(roastMonth);
+  }
+  if (recipe.inCellar) {
+    const cellar = document.createElement('span');
+    cellar.textContent = 'Cellar';
+    metadata.append(cellar);
+  }
+  recipe.components?.forEach((component) => {
+    const text = [
+      component.country,
+      component.name,
+      component.process,
+      component.varietal,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    if (!text) return;
+    const componentLine = document.createElement('p');
+    componentLine.textContent = text;
+    metadata.append(componentLine);
+  });
+  if (metadata.childNodes.length) card.append(metadata);
+
+  const methodAction = document.createElement('button');
+  methodAction.type = 'button';
+  methodAction.className = 'button button-secondary button-compact add-method';
+  const methods = new Set(
+    recipe.iterations.map((iteration) => iteration.brewMethod ?? 'espresso'),
+  );
+  methodAction.textContent =
+    methods.has('espresso') && !methods.has('filter')
+      ? 'Add filter recipe'
+      : methods.has('filter') && !methods.has('espresso')
+        ? 'Add espresso recipe'
+        : 'Add another brew recipe';
+  methodAction.addEventListener('click', () => createOtherMethod(recipe));
+  card.append(methodAction);
+
+  ['espresso', 'filter'].forEach((method) => {
+    const iterations = recipe.iterations.filter(
+      (iteration) => (iteration.brewMethod ?? 'espresso') === method,
     );
+    if (!iterations.length) return;
+    const methodHeading = document.createElement('h4');
+    methodHeading.className = 'method-heading';
+    methodHeading.textContent =
+      method === 'espresso' ? 'Espresso recipes' : 'Filter recipes';
+    card.append(methodHeading);
+    const current = iterations.at(-1);
+    card.append(
+      createRecipeIteration(recipe, current, iterations.length, {
+        current: true,
+      }),
+    );
+    const previousIterations = iterations.slice(0, -1);
+    if (previousIterations.length) {
+      const previous = document.createElement('details');
+      previous.className = 'previous-recipes';
+      const previousHeading = document.createElement('summary');
+      previousHeading.textContent = `Previous recipes (${previousIterations.length})`;
+      previous.append(previousHeading);
+      previousIterations
+        .map((iteration, index) => ({ iteration, number: index + 1 }))
+        .reverse()
+        .forEach(({ iteration, number }) =>
+          previous.append(createRecipeIteration(recipe, iteration, number)),
+        );
+      card.append(previous);
+    }
+  });
   return card;
 }
 
 function renderRecipes() {
   const list = byId('recipe-list');
   const query = recipeNameKey(byId('recipe-search').value);
-  const recipes = [...state.recipes]
-    .filter((recipe) => recipeNameKey(recipe.coffee).includes(query))
-    .sort((a, b) =>
+  const cellarOnly = byId('cellar-only').checked;
+  const searchText = (recipe) =>
+    [
+      recipe.coffee,
+      recipe.sku,
+      ...(recipe.components ?? []).flatMap((component) => [
+        component.country,
+        component.name,
+        component.varietal,
+      ]),
+    ]
+      .join(' ')
+      .toLocaleLowerCase();
+  const recipes = [...state.recipes].filter(
+    (recipe) =>
+      (!cellarOnly || recipe.inCellar) && searchText(recipe).includes(query),
+  );
+  if (byId('sort-recipes').dataset.sort === 'name') {
+    recipes.sort((a, b) =>
+      recipeDisplayName(a).localeCompare(recipeDisplayName(b)),
+    );
+  } else {
+    recipes.sort((a, b) =>
       String(b.iterations.at(-1)?.createdAt ?? b.id).localeCompare(
         String(a.iterations.at(-1)?.createdAt ?? a.id),
       ),
     );
+  }
   list.replaceChildren();
   recipes.forEach((recipe) => list.append(createRecipeCard(recipe)));
   byId('recipe-search-status').textContent = query
@@ -752,6 +1146,11 @@ byId('dial-form').addEventListener('submit', (event) => {
   error.hidden = true;
   try {
     lastCalculation = dialInFrom(event.currentTarget);
+    if (!lastCalculation.result) {
+      throw new RangeError(
+        'Add dose, beverage yield, measured TDS, target TDS and target dissolved solids to calculate. You can still save an incomplete notebook entry.',
+      );
+    }
     showCalculation(lastCalculation.result);
   } catch (caught) {
     error.textContent = caught.message;
@@ -767,13 +1166,40 @@ byId('dial-form').addEventListener('input', (event) => {
     );
     if (savedRecipe) {
       event.currentTarget.elements.recipeType.value = savedRecipe.recipeType;
-      event.currentTarget.elements.targetStrength.value =
-        targetStrengthForRecipeType(savedRecipe.recipeType).toFixed(2);
+      if (event.currentTarget.elements.brewMethod.value === 'espresso') {
+        event.currentTarget.elements.targetStrength.value =
+          targetStrengthForRecipeType(
+            'espresso',
+            savedRecipe.recipeType,
+          ).toFixed(2);
+      }
+      event.currentTarget.elements.sku.value = savedRecipe.sku ?? '';
+      event.currentTarget.elements.roastMonth.value =
+        savedRecipe.roastMonth ?? '';
+      event.currentTarget.elements.inCellar.checked = Boolean(
+        savedRecipe.inCellar,
+      );
+      setComponents(savedRecipe.components);
+      editingRecipeId = savedRecipe.id;
+    } else if (!editingIterationId) {
+      editingRecipeId = null;
     }
   }
   if (event.target.name === 'recipeType') {
-    event.currentTarget.elements.targetStrength.value =
-      targetStrengthForRecipeType(event.target.value).toFixed(2);
+    refreshComponentRows();
+    if (event.currentTarget.elements.brewMethod.value === 'espresso') {
+      event.currentTarget.elements.targetStrength.value =
+        targetStrengthForRecipeType('espresso', event.target.value).toFixed(2);
+    }
+  }
+  if (event.target.name === 'brewMethod') {
+    applyBrewDefaults(event.currentTarget, event.target.value);
+  }
+  if (
+    event.target.name === 'targetStrength' &&
+    event.currentTarget.elements.brewMethod.value === 'filter'
+  ) {
+    updateTargetControls(event.currentTarget, 'filter');
   }
   lastCalculation = null;
   byId('result-placeholder').hidden = false;
@@ -782,16 +1208,23 @@ byId('dial-form').addEventListener('input', (event) => {
 
 byId('dial-further').addEventListener('click', () => {
   if (!lastCalculation) return;
+  const brewMethod = lastCalculation.brewMethod;
   byId('dose').value = formatMeasurement(
     lastCalculation.result.recommendedDose,
   );
-  byId('yield').value = formatMeasurement(
-    lastCalculation.result.recommendedYield,
-  );
+  if (brewMethod !== 'filter') {
+    byId('yield').value = formatMeasurement(
+      lastCalculation.result.recommendedYield,
+    );
+  }
   byId('strength').value = '';
   lastCalculation = null;
   byId('strength').focus();
-  showToast('Recommendation loaded. Measure the next shot’s strength.');
+  showToast(
+    brewMethod === 'filter'
+      ? `Recommended dose loaded. Keep the measured yield in the log; the next filter target is ${FILTER_TARGET_YIELD_GRAMS} g.`
+      : 'Recommendation loaded. Measure the next brew’s strength.',
+  );
 });
 
 byId('save-recipe').addEventListener('click', () => {
@@ -807,10 +1240,19 @@ byId('save-recipe').addEventListener('click', () => {
     error.hidden = false;
     return;
   }
-  const { coffee, recipeType, measurements, brewDetails, result } = currentShot;
+  const {
+    coffee,
+    recipeType,
+    brewMethod,
+    metadata,
+    measurements,
+    brewDetails,
+    result,
+  } = currentShot;
   const savedAt = new Date().toISOString();
   const iteration = {
     id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+    brewMethod,
     dose: measurements.dose,
     yieldGrams: measurements.yieldGrams,
     strength: measurements.strength,
@@ -818,33 +1260,48 @@ byId('save-recipe').addEventListener('click', () => {
     targetSolids: measurements.targetSolids,
     grindSize: brewDetails.grindSize,
     shotTime: brewDetails.shotTime,
-    extractionYield: result.extractionYield,
-    dissolvedSolids: result.dissolvedSolids,
+    extractionYield: result?.extractionYield ?? null,
+    dissolvedSolids: result?.dissolvedSolids ?? null,
     createdAt: savedAt,
     lastAssignedAt: null,
   };
-  const recipe = addRecipeIteration(state, coffee, iteration, recipeType);
+  const previous = editingIterationId
+    ? findIteration(state, editingIterationId)
+    : null;
+  const recipe = addRecipeIteration(state, coffee, iteration, recipeType, {
+    ...metadata,
+    recipeId: editingRecipeId,
+  });
   const wasEditing = editingIterationId !== null;
-  const updatedAssignments = wasEditing
-    ? replaceAssignedIteration(state, editingIterationId, iteration.id)
-    : 0;
+  const updatedAssignments =
+    wasEditing &&
+    previous?.iteration.brewMethod !== 'filter' &&
+    brewMethod === 'espresso' &&
+    isCompleteIteration(iteration)
+      ? replaceAssignedIteration(state, editingIterationId, iteration.id)
+      : 0;
   if (updatedAssignments > 0) iteration.lastAssignedAt = savedAt;
   persistAndRender();
   byId('dial-form').reset();
   byId('target-strength').value = '9.30';
   byId('target-solids').value = '4.41';
+  updateTargetControls(byId('dial-form'), 'espresso');
+  setComponents();
   byId('result-placeholder').hidden = false;
   byId('result-content').hidden = true;
   lastCalculation = null;
   editingIterationId = null;
+  editingRecipeId = null;
   byId('edit-context').hidden = true;
+  byId('edit-context').textContent =
+    'Editing a saved recipe. Saving will create a new iteration.';
   showView('recipes');
   showToast(
     updatedAssignments > 0
-      ? `${recipe.coffee} saved as iteration ${recipe.iterations.length} and updated on the assigned program.`
+      ? `${recipeDisplayName(recipe)} saved as iteration ${recipe.iterations.length} and updated on the assigned program.`
       : wasEditing || recipe.iterations.length > 1
-        ? `${recipe.coffee} saved as iteration ${recipe.iterations.length}.`
-        : `${recipe.coffee} saved to your recipe log.`,
+        ? `${recipeDisplayName(recipe)} saved as iteration ${recipe.iterations.length}.`
+        : `${recipeDisplayName(recipe)} saved to your recipe log.`,
   );
 });
 
@@ -876,6 +1333,30 @@ byId('quick-form').addEventListener('input', (event) => {
     outputs.forEach((id) => {
       byId(id).textContent = '—';
     });
+  }
+});
+
+byId('bypass-form').addEventListener('submit', (event) =>
+  event.preventDefault(),
+);
+byId('bypass-form').addEventListener('input', (event) => {
+  const data = new FormData(event.currentTarget);
+  try {
+    const result = calculateBypassWater({
+      beverageMass: optionalNumberFrom(data, 'beverageMass'),
+      currentTds: optionalNumberFrom(data, 'currentTds'),
+      targetTds: optionalNumberFrom(data, 'targetTds'),
+    });
+    byId('bypass-water').textContent = formatMeasurement(result.addedWater);
+    byId('bypass-message').textContent = 'grams';
+  } catch (error) {
+    byId('bypass-water').textContent = '—';
+    const hasAllValues = ['beverageMass', 'currentTds', 'targetTds'].every(
+      (name) => optionalNumberFrom(data, name),
+    );
+    byId('bypass-message').textContent = hasAllValues
+      ? error.message
+      : 'Enter all three values.';
   }
 });
 
@@ -918,6 +1399,18 @@ byId('import-file').addEventListener('change', async (event) => {
 });
 
 byId('recipe-search').addEventListener('input', renderRecipes);
+byId('cellar-only').addEventListener('change', renderRecipes);
+byId('sort-recipes').addEventListener('click', (event) => {
+  const isNewest = event.currentTarget.dataset.sort === 'newest';
+  event.currentTarget.dataset.sort = isNewest ? 'name' : 'newest';
+  event.currentTarget.textContent = isNewest ? 'Sort: name' : 'Sort: newest';
+  renderRecipes();
+});
+byId('add-component').addEventListener('click', () => {
+  const list = byId('component-list');
+  list.append(componentRow({}, list.children.length));
+  refreshComponentRows();
+});
 
 document.addEventListener('click', (event) => {
   const target = event.target.closest('[data-view], [data-go]');
@@ -926,6 +1419,7 @@ document.addEventListener('click', (event) => {
 });
 
 renderDashboard();
+setComponents();
 renderRecipes();
 void initialiseOnlineState();
 const initialView = window.location.hash.slice(1);

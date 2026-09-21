@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { calculateDialIn, formatMeasurement, roundTo } from './calculator.js';
+import {
+  calculateBypassWater,
+  calculateDialIn,
+  filterTargetSolids,
+  formatMeasurement,
+  roundTo,
+} from './calculator.js';
 
 describe('calculateDialIn', () => {
   it('calculates extraction and the recommended recipe', () => {
@@ -38,6 +44,65 @@ describe('calculateDialIn', () => {
       ).toThrow(RangeError);
     },
   );
+
+  it('keeps filter recommendations at a 355 g brewed-beverage yield', () => {
+    const first = calculateDialIn({
+      brewMethod: 'filter',
+      dose: 20,
+      yieldGrams: 250,
+      strength: 1.4,
+      targetStrength: 1.35,
+      targetSolids: 3.375,
+    });
+    const strongerTarget = calculateDialIn({
+      brewMethod: 'filter',
+      dose: 20,
+      yieldGrams: 250,
+      strength: 1.4,
+      targetStrength: 1.5,
+      targetSolids: 99,
+    });
+
+    expect(first.recommendedYield).toBe(355);
+    expect(strongerTarget.recommendedYield).toBe(355);
+    expect(first.dissolvedSolids).toBeCloseTo(3.5);
+    expect(filterTargetSolids(1.35)).toBeCloseTo(4.7925);
+    expect(strongerTarget.recommendedDose).toBeGreaterThan(
+      first.recommendedDose,
+    );
+  });
+});
+
+describe('calculateBypassWater', () => {
+  it('calculates the water needed to dilute a filter brew', () => {
+    expect(
+      calculateBypassWater({
+        beverageMass: 250,
+        currentTds: 1.5,
+        targetTds: 1.25,
+      }).addedWater,
+    ).toBe(50);
+  });
+
+  it('returns zero when the brew already matches the target', () => {
+    expect(
+      calculateBypassWater({
+        beverageMass: 250,
+        currentTds: 1.35,
+        targetTds: 1.35,
+      }).addedWater,
+    ).toBe(0);
+  });
+
+  it('rejects a target stronger than the current brew', () => {
+    expect(() =>
+      calculateBypassWater({
+        beverageMass: 250,
+        currentTds: 1.2,
+        targetTds: 1.4,
+      }),
+    ).toThrow('cannot make it stronger');
+  });
 });
 
 describe('formatting helpers', () => {
